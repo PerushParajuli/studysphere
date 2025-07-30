@@ -119,6 +119,10 @@ export default function EventsPage() {
     return eventDate.getMonth() === currentDate.getMonth() && 
            eventDate.getFullYear() === currentDate.getFullYear();
   });
+  
+  // Debug logging
+  console.log('Current events state:', events);
+  console.log('Current month events:', currentMonthEvents);
 
   useEffect(() => {
     const fetchUserAndEvents = async () => {
@@ -138,20 +142,29 @@ export default function EventsPage() {
 
       const { data: eventData, error } = await supabase.from("events").select("id, title, description, date, created_by");
       
+      console.log('Supabase query result:', { eventData, error }); // Debug
+      
       if (error) {
+        console.error('Error fetching events:', error); // Debug
         toast.error(`Could not fetch events: ${error.message}`);
       } else {
+        console.log('Raw events from database:', eventData); // Debug
         const mappedEvents = eventData.map(e => ({ 
-          id: e.id, 
+          id: String(e.id), // Ensure ID is string for FullCalendar
           title: e.title, 
-          description: e.description, 
+          description: e.description || '', 
           start: e.date, 
           allDay: true,
+          backgroundColor: '#3b82f6',
+          borderColor: '#2563eb',
+          textColor: '#ffffff',
           extendedProps: {
-            description: e.description,
-            created_by: e.created_by
+            description: e.description || '',
+            created_by: e.created_by,
+            originalId: e.id // Keep original ID for database operations
           }
         }));
+        console.log('Mapped events for FullCalendar:', mappedEvents); // Debug
         setEvents(mappedEvents);
       }
       setLoading(false);
@@ -193,40 +206,53 @@ export default function EventsPage() {
       if (error) {
         toast.error(error.message);
       } else {
+        console.log('Event created successfully, data:', data[0]); // Debug
         const newEvent = {
-          id: data[0].id,
+          id: String(data[0].id), // Ensure ID is string for FullCalendar
           title: data[0].title,
-          description: data[0].description,
+          description: data[0].description || '',
           start: data[0].date,
           allDay: true,
+          backgroundColor: '#3b82f6',
+          borderColor: '#2563eb',
+          textColor: '#ffffff',
           extendedProps: {
-            description: data[0].description,
-            created_by: data[0].created_by
+            description: data[0].description || '',
+            created_by: data[0].created_by,
+            originalId: data[0].id // Keep original ID for database operations
           }
         };
+        console.log('Adding new event to state:', newEvent); // Debug
         setEvents([...events, newEvent]);
         toast.success("Event created!");
         handleSidebarClose();
       }
     } else {
+      // Use original ID for database operations
+      const dbId = selectedEvent.extendedProps?.originalId || selectedEvent.id;
+      console.log('Updating event with ID:', dbId); // Debug
+      
       const { error } = await supabase
         .from("events")
         .update({ title: event.title, description: event.description })
-        .eq("id", event.id);
+        .eq("id", dbId);
 
       if (error) {
+        console.error('Update error:', error); // Debug
         toast.error(error.message);
       } else {
+        console.log('Event updated successfully'); // Debug
         // Update local events state after saving
         const updatedEvents = events.map(evt => 
           evt.id === selectedEvent.id ? { ...evt, title: event.title, description: event.description } : evt
         );
         setEvents(updatedEvents);
 
-        const calendarApi = selectedEvent.view.calendar;
-        const evt = calendarApi.getEventById(selectedEvent.id);
-        evt.setProp('title', event.title);
-        evt.setExtendedProp('description', event.description);
+        // Update the calendar event if it has the methods
+        if (selectedEvent.setProp) {
+          selectedEvent.setProp('title', event.title);
+          selectedEvent.setExtendedProp('description', event.description);
+        }
 
         toast.success("Event updated!");
         handleSidebarClose();
@@ -235,11 +261,17 @@ export default function EventsPage() {
   };
 
   const handleDeleteEvent = async (event) => {
-    const { error } = await supabase.from("events").delete().eq("id", event.id);
+    // Use original ID for database operations
+    const dbId = event.extendedProps?.originalId || event.id;
+    console.log('Deleting event with ID:', dbId); // Debug
+    
+    const { error } = await supabase.from("events").delete().eq("id", dbId);
 
     if (error) {
+      console.error('Delete error:', error); // Debug
       toast.error(error.message);
     } else {
+      console.log('Event deleted successfully'); // Debug
       // Update local events state
       const updatedEvents = events.filter(evt => evt.id !== event.id);
       setEvents(updatedEvents);
@@ -272,6 +304,7 @@ export default function EventsPage() {
             </CardHeader>
             <CardContent>
               <FullCalendar
+                key={events.length} // Force re-render when events change
                 plugins={[dayGridPlugin, interactionPlugin, timeGridPlugin]}
                 initialView="dayGridMonth"
                 headerToolbar={{
@@ -310,10 +343,14 @@ export default function EventsPage() {
           <MonthlyEventsList 
             events={currentMonthEvents} 
               onEventClick={(event) => {
-                // When clicking on the list, find the corresponding event object from the main `events` state
-                const calendarEvent = events.find(e => e.id === event.id)
-                setSelectedEvent(calendarEvent)
-                setIsNewEvent(false)
+                // When clicking on the list, find the corresponding calendar event object
+                const calendarEvent = events.find(e => e.id === String(event.id));
+                if (calendarEvent) {
+                  setSelectedEvent(calendarEvent);
+                  setIsNewEvent(false);
+                } else {
+                  console.error("Couldn't find matching calendar event for list item:", event);
+                }
               }}
           />
         </div>
