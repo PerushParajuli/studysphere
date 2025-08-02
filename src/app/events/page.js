@@ -505,7 +505,7 @@ export default function EventsPage() {
 
   return (
     <DashboardLayout user={user} isAdmin={user?.role === "admin"}>
-      <div className="grid grid-cols-10 gap-8">
+      <div className="grid grid-cols-10 gap-8 bg-gray-50 dark:bg-gray-900 min-h-screen p-4 rounded-lg">
         <div
           className={`col-span-10 ${
             selectedEvent ? "lg:col-span-7" : "lg:col-span-10"

@@ -51,6 +51,20 @@ const formatFileSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+  // Helper function to get display name for resources based on user role
+  const getResourceDisplayName = (resourceName, user, currentPath) => {
+    // Only rename folders to role-specific names at root level
+    if (currentPath === './') {
+      if (user?.role === 'teacher' && resourceName === 'teachers') {
+        return 'My Folder';
+      }
+      if (user?.role === 'student' && resourceName === 'students') {
+        return 'My Folder';
+      }
+    }
+    return resourceName;
+  };
+
 // Helper function to get role-based path
 const getRoleBasedPath = (user, currentPath, fileName = '') => {
   if (!user) return currentPath;
@@ -125,6 +139,10 @@ const ResourcesPage = () => {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [currentPath, setCurrentPath] = useState('./');
+  const [viewingFile, setViewingFile] = useState(null);
+  const [fileContent, setFileContent] = useState('');
+  const [contextMenu, setContextMenu] = useState(null);
+  const [selectedResource, setSelectedResource] = useState(null);
   const { toast } = useToast();
 
   const fetchResources = useCallback(async (path) => {
@@ -143,7 +161,7 @@ const ResourcesPage = () => {
         setResources([]);
       } else {
         console.log('Raw storage data:', data);
-        const formattedResources = data
+        let formattedResources = data
           .filter(item => item.name !== '.keep')
           .map(item => ({
             id: item.id || item.name,
@@ -151,6 +169,14 @@ const ResourcesPage = () => {
             type: item.id ? 'file' : 'folder',
             path: listPath ? `${listPath}/${item.name}` : item.name,
           }));
+        
+        // Filter resources for teachers at root level
+        if (user?.role === 'teacher' && currentPath === './') {
+          formattedResources = formattedResources.filter(item => {
+            return item.name === 'Admin' || item.name === 'teachers';
+          });
+        }
+        
         console.log('Formatted resources:', formattedResources);
         setResources(formattedResources);
       }
@@ -190,9 +216,184 @@ const ResourcesPage = () => {
         console.error('User fetch error:', error);
         setLoading(false);
       }
-    };
+    }
     fetchUser();
   }, []);
+
+  // Navigation handler for double-click
+  const handleNavigate = (resource) => {
+    if (resource.type === 'folder') {
+      setCurrentPath(`./${resource.path}`);
+    } else if (resource.type === 'file') {
+      handleViewFile(resource);
+    }
+  };
+
+  // Go back to parent directory
+  const handleGoBack = () => {
+    const pathParts = currentPath.replace('./', '').split('/').filter(Boolean);
+    pathParts.pop();
+    const newPath = pathParts.length === 0 ? './' : `./${pathParts.join('/')}`;
+    setCurrentPath(newPath);
+  };
+
+  // Check if file can be viewed inline
+  const canViewInline = (fileName) => {
+    const extension = fileName.toLowerCase().split('.').pop();
+    return ['pdf', 'jpg', 'jpeg', 'png', 'txt'].includes(extension);
+  };
+
+  // View file content inline
+  const handleViewFile = async (resource) => {
+    if (!canViewInline(resource.name)) {
+      toast.info('File type not supported for preview');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.storage
+        .from('resources')
+        .createSignedUrl(resource.path, 3600);
+
+      if (error) {
+        toast.error(`Failed to generate view link: ${error.message}`);
+        return;
+      }
+
+      const extension = resource.name.toLowerCase().split('.').pop();
+      
+      if (extension === 'txt') {
+        // Fetch text content
+        try {
+          const response = await fetch(data.signedUrl);
+          const text = await response.text();
+          setFileContent(text);
+        } catch (fetchError) {
+          setFileContent('Error loading file content');
+        }
+      }
+
+      setViewingFile({
+        name: resource.name,
+        url: data.signedUrl,
+        extension,
+        path: resource.path
+      });
+    } catch (error) {
+      toast.error('Failed to open file');
+    }
+  };
+
+  // Close file viewer
+  const closeViewer = () => {
+    setViewingFile(null);
+    setFileContent('');
+  };
+
+  // Handle right-click context menu
+  const handleContextMenu = (e, resource) => {
+    e.preventDefault();
+    console.log('Right-click detected on:', resource.name);
+    console.log('Can manage in path:', canManageInPath(user, currentPath));
+    if (!canManageInPath(user, currentPath)) {
+      console.log('No permission to manage files in this path');
+      return; // Don't show context menu if user can't manage files
+    }
+    console.log('Setting context menu at:', e.clientX, e.clientY);
+    setSelectedResource(resource);
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  // Close context menu
+  const closeContextMenu = () => {
+    setContextMenu(null);
+    setSelectedResource(null);
+  };
+
+  // Handle rename
+  const handleRename = async (resource) => {
+    const newName = prompt('Enter new name:', resource.name);
+    if (!newName || newName === resource.name) {
+      closeContextMenu();
+      return;
+    }
+
+    const pathParts = resource.path.split('/');
+    pathParts[pathParts.length - 1] = newName;
+    const newPath = pathParts.join('/');
+
+    try {
+      if (resource.type === 'file') {
+        // For files, we need to copy and delete
+        const { error: copyError } = await supabase.storage
+          .from('resources')
+          .copy(resource.path, newPath);
+
+        if (copyError) {
+          toast.error(`Failed to rename: ${copyError.message}`);
+          closeContextMenu();
+          return;
+        }
+
+        const { error: deleteError } = await supabase.storage
+          .from('resources')
+          .remove([resource.path]);
+
+        if (deleteError) {
+          toast.error(`Failed to delete original: ${deleteError.message}`);
+          closeContextMenu();
+          return;
+        }
+      } else {
+        // For folders, we need to rename all files inside
+        const { data: files, error: listError } = await supabase.storage
+          .from('resources')
+          .list(resource.path);
+
+        if (listError) {
+          toast.error(`Failed to list folder contents: ${listError.message}`);
+          closeContextMenu();
+          return;
+        }
+
+        // Copy all files to new folder path
+        for (const file of files) {
+          const oldFilePath = `${resource.path}/${file.name}`;
+          const newFilePath = `${newPath}/${file.name}`;
+          
+          const { error: copyError } = await supabase.storage
+            .from('resources')
+            .copy(oldFilePath, newFilePath);
+
+          if (copyError) {
+            toast.error(`Failed to copy file ${file.name}: ${copyError.message}`);
+            closeContextMenu();
+            return;
+          }
+        }
+
+        // Delete old folder
+        const filesToDelete = files.map(file => `${resource.path}/${file.name}`);
+        if (filesToDelete.length > 0) {
+          const { error: deleteError } = await supabase.storage
+            .from('resources')
+            .remove(filesToDelete);
+
+          if (deleteError) {
+            toast.error(`Failed to delete old folder: ${deleteError.message}`);
+            closeContextMenu();
+            return;
+          }
+        }
+      }
+
+      toast.success('Renamed successfully!');
+      fetchResources(currentPath);
+    } catch (error) {
+      toast.error('Failed to rename.');
+    }
+    closeContextMenu();
+  };
 
   // Initialize proper path based on user role and fetch resources
   useEffect(() => {
@@ -266,49 +467,61 @@ const ResourcesPage = () => {
     }
   };
 
+  // Handle delete
   const handleDelete = async (resource) => {
-    if (!window.confirm(`Are you sure you want to delete "${resource.name}"?`)) {
+    const confirmMessage = resource.type === 'folder' 
+      ? `Are you sure you want to delete the folder "${resource.name}" and all its contents?`
+      : `Are you sure you want to delete "${resource.name}"?`;
+      
+    if (!window.confirm(confirmMessage)) {
+      closeContextMenu();
       return;
     }
 
-    if (resource.type === 'file') {
-      const { error } = await supabase.storage.from('resources').remove([resource.path]);
-      if (error) {
-        if (error.message.includes('policy')) {
-          toast.error('You do not have permission to delete this file.');
-        } else {
-          toast.error(`Failed to delete file: ${error.message}`);
-        }
-      } else {
-        toast.success('File deleted successfully!');
-        fetchResources(currentPath);
-      }
-    } else if (resource.type === 'folder') {
-      const { data: files, error: listError } = await supabase.storage.from('resources').list(resource.path);
-
-      if (listError) {
-        toast.error(`Could not list files in folder: ${listError.message}`);
-        return;
-      }
-
-      const filePathsToRemove = files.map(file => `${resource.path}/${file.name}`);
-      filePathsToRemove.push(`${resource.path}`);
-
-      if (filePathsToRemove.length > 0) {
-        const { error: removeError } = await supabase.storage.from('resources').remove(filePathsToRemove);
-        if (removeError) {
-          if (removeError.message.includes('policy')) {
-            toast.error('You do not have permission to delete this folder.');
+    try {
+      if (resource.type === 'file') {
+        const { error } = await supabase.storage.from('resources').remove([resource.path]);
+        if (error) {
+          if (error.message.includes('policy')) {
+            toast.error('You do not have permission to delete this file.');
           } else {
-            toast.error(`Failed to delete folder: ${removeError.message}`);
+            toast.error(`Failed to delete file: ${error.message}`);
           }
+        } else {
+          toast.success('File deleted successfully!');
+          fetchResources(currentPath);
+        }
+      } else if (resource.type === 'folder') {
+        const { data: files, error: listError } = await supabase.storage.from('resources').list(resource.path);
+
+        if (listError) {
+          toast.error(`Could not list files in folder: ${listError.message}`);
+          closeContextMenu();
           return;
         }
+
+        const filePathsToRemove = files.map(file => `${resource.path}/${file.name}`);
+        
+        if (filePathsToRemove.length > 0) {
+          const { error: removeError } = await supabase.storage.from('resources').remove(filePathsToRemove);
+          if (removeError) {
+            if (removeError.message.includes('policy')) {
+              toast.error('You do not have permission to delete this folder.');
+            } else {
+              toast.error(`Failed to delete folder: ${removeError.message}`);
+            }
+            closeContextMenu();
+            return;
+          }
+        }
+        
+        toast.success('Folder deleted successfully!');
+        fetchResources(currentPath);
       }
-      
-      toast.success('Folder deleted successfully!');
-      fetchResources(currentPath);
+    } catch (error) {
+      toast.error('Failed to delete.');
     }
+    closeContextMenu();
   };
 
   const handleCreateFolder = async () => {
@@ -350,18 +563,6 @@ const ResourcesPage = () => {
     }
   };
 
-  const handleNavigate = (resource) => {
-    if (resource.type === 'folder') {
-      setCurrentPath(`./${resource.path}`);
-    }
-  };
-
-  const handleGoBack = () => {
-    const pathParts = currentPath.replace('./', '').split('/').filter(Boolean);
-    pathParts.pop();
-    const newPath = pathParts.length === 0 ? './' : `./${pathParts.join('/')}`;
-    setCurrentPath(newPath);
-  };
 
   const handleDownload = async (resource) => {
     try {
@@ -388,89 +589,176 @@ const ResourcesPage = () => {
   };
 
   return (
-    <DashboardLayout user={user}>
-      <Card>
-        <CardHeader className="flex justify-between items-center">
-          <div>
-            <CardTitle>Course Resources</CardTitle>
-            <p className="text-sm text-gray-500 mt-1">
-              Supported files: PDF, DOC, DOCX, Images (JPG, PNG), Text files (max 10MB)
-            </p>
-          </div>
-          <div>
-            {currentPath !== './' && (
-              <Button onClick={handleGoBack} className="mr-2">Back</Button>
-            )}
-            {user?.role === 'student' && (
-              <Button onClick={() => setCurrentPath('./')} className="mr-2">All Resources</Button>
-            )}
-            {user?.role === 'teacher' && currentPath === './' && (
+    <div onClick={closeContextMenu}>
+      {/* Context Menu */}
+      {contextMenu && selectedResource && (
+        <div
+          className="fixed z-50 w-40 bg-white shadow-lg border border-gray-200 rounded-md py-1"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-blue-50 transition-colors"
+            onClick={() => handleRename(selectedResource)}
+          >
+            🏷️ Rename
+          </button>
+          <button
+            className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+            onClick={() => handleDelete(selectedResource)}
+          >
+            🗑️ Delete
+          </button>
+        </div>
+      )}
+
+      {/* Full-screen file viewer */}
+      {viewingFile && (
+        <div className="fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center z-[9999]" onClick={closeViewer}>
+          <div className="bg-white rounded-lg max-w-6xl max-h-[95vh] w-full mx-4 overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-white">
+              <h3 className="text-lg font-semibold text-gray-800">{viewingFile.name}</h3>
               <Button 
-                onClick={() => setCurrentPath(`./teachers/${user.name || 'unknown'}`)} 
-                className="mr-2"
+                variant="outline" 
+                size="sm" 
+                onClick={closeViewer}
+                className="bg-white hover:bg-gray-100 text-gray-700 border-gray-300"
               >
-                My Folder
+                ✕ Close
               </Button>
-            )}
-            {user?.role === 'teacher' && currentPath !== './' && (
-              <Button onClick={() => setCurrentPath('./')} className="mr-2">All Resources</Button>
-            )}
-            {canManageInPath(user, currentPath) && (
-              <>
-                <Button onClick={handleCreateFolder} className="mr-2">Create Folder</Button>
-                <Button 
-                  onClick={() => document.getElementById('file-upload').click()}
-                  disabled={uploading}
-                >
-                  {uploading ? 'Uploading...' : 'Upload File'}
-                </Button>
-                <Input 
-                  id="file-upload" 
-                  type="file" 
-                  className="hidden" 
-                  onChange={handleFileUpload} 
-                  disabled={uploading} 
-                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt"
-                />
-              </>
+            </div>
+            <div className="p-4 max-h-[calc(95vh-8rem)] overflow-auto bg-gray-50">
+              {viewingFile.extension === 'pdf' && (
+                <div className="bg-white rounded shadow-sm">
+                  <iframe 
+                    src={viewingFile.url} 
+                    className="w-full h-[80vh] rounded" 
+                    title={viewingFile.name}
+                  />
+                </div>
+              )}
+              {(['jpg', 'jpeg', 'png'].includes(viewingFile.extension)) && (
+                <div className="flex justify-center bg-white rounded p-4 shadow-sm">
+                  <img 
+                    src={viewingFile.url} 
+                    alt={viewingFile.name} 
+                    className="max-w-full max-h-[80vh] object-contain rounded"
+                  />
+                </div>
+              )}
+              {viewingFile.extension === 'txt' && (
+                <div className="bg-white p-4 rounded shadow-sm border border-gray-200">
+                  <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800">
+                    {fileContent}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <DashboardLayout user={user}>
+        <div className="h-full bg-gray-50 rounded-t-lg overflow-hidden border border-gray-200">
+          {/* File Manager Toolbar */}
+          <div className="bg-gray-100 border-b border-gray-200 px-4 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                {currentPath !== './' && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={handleGoBack}
+                    className="px-3 py-1 text-xs bg-white hover:bg-gray-50 text-gray-700 border-gray-300"
+                  >
+                    ← Back
+                  </Button>
+                )}
+                <div className="flex items-center text-sm text-gray-600">
+                  <FaFolder className="mr-1 text-amber-500" />
+                  <span>{currentPath === './' ? 'Resources' : currentPath.replace('./', '')}</span>
+                </div>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                {user?.role === 'teacher' && currentPath === './' && (
+                  <Button 
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPath(`./teachers/${user.name || 'unknown'}`)}
+                    className="px-3 py-1 text-xs bg-white hover:bg-gray-50 text-gray-700 border-gray-300"
+                  >
+                    My Folder
+                  </Button>
+                )}
+                {canManageInPath(user, currentPath) && (
+                  <>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCreateFolder}
+                      className="px-3 py-1 text-xs bg-white hover:bg-gray-50 text-gray-700 border-gray-300"
+                    >
+                      + New Folder
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      size="sm"
+                      onClick={() => document.getElementById('file-upload').click()}
+                      disabled={uploading}
+                      className="px-3 py-1 text-xs bg-white hover:bg-gray-50 text-gray-700 border-gray-300 disabled:opacity-50"
+                    >
+                      {uploading ? 'Uploading...' : '+ Upload'}
+                    </Button>
+                    <Input 
+                      id="file-upload" 
+                      type="file" 
+                      className="hidden" 
+                      onChange={handleFileUpload} 
+                      disabled={uploading} 
+                      accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt"
+                    />
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* File Grid - Desktop Style */}
+          <div className="p-4 bg-gray-50 h-full overflow-auto">
+            {loading ? (
+              <div className="flex items-center justify-center h-64">
+                <div className="text-gray-500">Loading...</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-4">
+                {resources.map(resource => (
+                  <div 
+                    key={resource.id}
+                    className="flex flex-col items-center p-3 rounded-lg hover:bg-blue-50 cursor-pointer transition-colors duration-200 group"
+                    onDoubleClick={() => handleNavigate(resource)}
+                    onContextMenu={(e) => handleContextMenu(e, resource)}
+                  >
+                    <div className="mb-2">
+                      {resource.type === 'folder' ? (
+                        <FaFolder className="text-5xl text-amber-500 drop-shadow-sm" />
+                      ) : (
+                        <div className="text-5xl drop-shadow-sm">
+                          {getFileIcon(resource.name)}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs text-center leading-tight text-gray-700 group-hover:text-blue-700 max-w-full break-words px-1">
+                      {getResourceDisplayName(resource.name, user, currentPath)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <p>Loading resources...</p>
-          ) : (
-            <ul className="space-y-2">
-              {resources.map(resource => (
-                <li key={resource.id} className="flex justify-between items-center p-2 border rounded-md">
-                  <div className="flex items-center cursor-pointer" onClick={() => handleNavigate(resource)}>
-                    {resource.type === 'folder' ? <FaFolder className="mr-2 text-yellow-500" /> : getFileIcon(resource.name)}
-                    {resource.name}
-                  </div>
-                  <div>
-                    {resource.type === 'file' && (
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="mr-2"
-                        onClick={() => handleDownload(resource)}
-                      >
-                        Download
-                      </Button>
-                    )}
-                    {(user?.role === 'teacher' || user?.role === 'admin') && (
-                      <Button variant="destructive" size="sm" onClick={() => handleDelete(resource)}>
-                        Delete
-                      </Button>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardContent>
-      </Card>
-    </DashboardLayout>
+        </div>
+      </DashboardLayout>
+    </div>
   );
 };
 
