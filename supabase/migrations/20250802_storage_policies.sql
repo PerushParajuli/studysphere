@@ -41,7 +41,7 @@ USING (
   (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'teacher' AND
   (
     -- Own teacher folder
-    split_part(name, '/', 1) = 'teachers' AND
+    split_part(name, '/', 1) = 'Teachers' AND
     split_part(name, '/', 2) = (
       SELECT COALESCE(name, 'unknown')
       FROM public.profiles 
@@ -56,7 +56,7 @@ WITH CHECK (
   bucket_id = 'resources' AND
   (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'teacher' AND
   -- Teachers can only upload to their own folder (not Admin)
-  split_part(name, '/', 1) = 'teachers' AND
+  split_part(name, '/', 1) = 'Teachers' AND
   split_part(name, '/', 2) = (
     SELECT COALESCE(name, 'unknown')
     FROM public.profiles 
@@ -143,7 +143,7 @@ COMMENT ON POLICY "Admins full access to resources" ON storage.objects IS
 'Allows admins to manage all files in resources bucket. Admin files go to Admin/ folder by default.';
 
 COMMENT ON POLICY "Teachers manage their own folder" ON storage.objects IS 
-'Teachers can manage files in their teachers/{name}/ folder and read Admin/ folder.';
+'Teachers can manage files in their Teachers/{name}/ folder and read Admin/ folder.';
 
 COMMENT ON POLICY "Students read all resources" ON storage.objects IS 
 'Students have read-only access to view and download all resources.';

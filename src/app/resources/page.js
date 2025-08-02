@@ -55,10 +55,10 @@ const formatFileSize = (bytes) => {
   const getResourceDisplayName = (resourceName, user, currentPath) => {
     // Only rename folders to role-specific names at root level
     if (currentPath === './') {
-      if (user?.role === 'teacher' && resourceName === 'teachers') {
-        return 'My Folder';
+      if ((user?.role === 'teacher' || user?.role === 'student' || user?.role === 'admin') && resourceName.toLowerCase() === 'teachers') {
+        return 'Teachers';
       }
-      if (user?.role === 'student' && resourceName === 'students') {
+      if (user?.role === 'admin' && resourceName === 'Admin') {
         return 'My Folder';
       }
     }
@@ -69,41 +69,45 @@ const formatFileSize = (bytes) => {
 const getRoleBasedPath = (user, currentPath, fileName = '') => {
   if (!user) return currentPath;
   
-  let basePath = '';
+  // For admins, they can upload anywhere they currently are
   if (user.role === 'admin') {
-    basePath = 'Admin';
-  } else if (user.role === 'teacher') {
-    basePath = `teachers/${user.name || 'unknown'}`;
-  } else {
-    // Students can't upload, but for safety
-    return currentPath;
+    const cleanPath = currentPath.replace('./', '');
+    if (currentPath === './') {
+      // If admin is at root, default to Admin folder
+      return fileName ? `Admin/${fileName}` : 'Admin';
+    } else {
+      // If admin is in a subfolder, upload there
+      return fileName ? `${cleanPath}/${fileName}` : cleanPath;
+    }
   }
   
-  // If we're at root level, use the role-based path
-  if (currentPath === './') {
-    return fileName ? `${basePath}/${fileName}` : basePath;
+  // For teachers, they can only upload to their own folder
+  if (user.role === 'teacher') {
+    const basePath = `Teachers/${user.name || 'unknown'}`;
+    
+    // If we're at root level, use the teacher's folder
+    if (currentPath === './') {
+      return fileName ? `${basePath}/${fileName}` : basePath;
+    }
+    
+    // If we're already in a role-based path, append to current path
+    const cleanPath = currentPath.replace('./', '');
+    return fileName ? `${cleanPath}/${fileName}` : cleanPath;
   }
   
-  // If we're already in a role-based path, append to current path
-  const cleanPath = currentPath.replace('./', '');
-  return fileName ? `${cleanPath}/${fileName}` : cleanPath;
+  // Students can't upload, but for safety
+  return currentPath;
 };
 
 // Helper function to get initial path based on user role
 const getInitialPath = (user) => {
   if (!user) return './';
   
-  // Students and teachers start at root to see all resources
-  // This allows teachers to see both Admin folder and their own teacher folder
-  if (user.role === 'student' || user.role === 'teacher') {
-    return './';
-  }
-  
-  // Only admins start directly in Admin folder
-  if (user.role === 'admin') {
-    return './Admin';
-  }
-  
+  // All users (students, teachers, and admins) start at root to see all resources
+  // This allows everyone to see all folders, but with different permissions:
+  // - Students: read-only access to all
+  // - Teachers: read-only to Admin, full access to their own folder
+  // - Admins: full CRUD access everywhere
   return './';
 };
 
@@ -120,7 +124,7 @@ const canManageInPath = (user, currentPath) => {
     const pathParts = cleanPath.split('/');
     
     // Teachers can manage in their own folder
-    if (pathParts[0] === 'teachers' && pathParts[1] === (user.name || 'unknown')) {
+    if (pathParts[0] === 'Teachers' && pathParts[1] === (user.name || 'unknown')) {
       return true;
     }
     
@@ -173,7 +177,7 @@ const ResourcesPage = () => {
         // Filter resources for teachers at root level
         if (user?.role === 'teacher' && currentPath === './') {
           formattedResources = formattedResources.filter(item => {
-            return item.name === 'Admin' || item.name === 'teachers';
+            return item.name === 'Admin' || item.name === 'Teachers' || item.name === 'teachers';
           });
         }
         
@@ -400,23 +404,15 @@ const ResourcesPage = () => {
     if (user) {
       console.log('User loaded, initializing resources for role:', user.role);
       
-      // For students and teachers, start at root to see all resources (including Admin folder)
-      if (user.role === 'student' || user.role === 'teacher') {
-        if (currentPath === './') {
-          console.log('Loading root resources for', user.role);
-          fetchResources('./');
-        } else {
-          fetchResources(currentPath);
-        }
-      } else if (user.role === 'admin') {
-        // For admins, set initial path to Admin folder if still at root
-        if (currentPath === './') {
-          const initialPath = getInitialPath(user);
-          console.log('Setting admin initial path:', initialPath);
-          setCurrentPath(initialPath);
-        } else {
-          fetchResources(currentPath);
-        }
+      // All user types start at root to see all resources
+      // Students: read-only access to all folders
+      // Teachers: read-only to Admin, full access to their own teacher folder  
+      // Admins: full CRUD access everywhere
+      if (currentPath === './') {
+        console.log('Loading root resources for', user.role);
+        fetchResources('./');
+      } else {
+        fetchResources(currentPath);
       }
     }
   }, [user, currentPath, fetchResources]);
@@ -685,7 +681,7 @@ const ResourcesPage = () => {
                   <Button 
                     variant="outline"
                     size="sm"
-                    onClick={() => setCurrentPath(`./teachers/${user.name || 'unknown'}`)}
+                    onClick={() => setCurrentPath(`./Teachers/${user.name || 'unknown'}`)}
                     className="px-3 py-1 text-xs bg-white hover:bg-gray-50 text-gray-700 border-gray-300"
                   >
                     My Folder
