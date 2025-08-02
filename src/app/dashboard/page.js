@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import supabase from "@/lib/supabase";
 import DashboardLayout from "../components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
 import { Button } from "../components/ui/button";
 
 const UserDashboardPage = () => {
@@ -14,7 +19,9 @@ const UserDashboardPage = () => {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         router.replace("/login");
         return;
@@ -31,14 +38,14 @@ const UserDashboardPage = () => {
         return;
       }
 
-      if (profile.role === 'admin') {
+      if (profile.role === "admin") {
         router.replace("/admin-dashboard");
         return;
-      } else if (profile.role === 'pending') {
+      } else if (profile.role === "pending") {
         router.replace("/pending");
         return;
       }
-      
+
       setUser({ ...user, ...profile });
       setLoading(false);
     };
@@ -49,7 +56,9 @@ const UserDashboardPage = () => {
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div className="text-gray-700 dark:text-gray-200 text-xl">Loading dashboard...</div>
+        <div className="text-gray-700 dark:text-gray-200 text-xl">
+          Loading dashboard...
+        </div>
       </div>
     );
   }
@@ -63,7 +72,9 @@ const UserDashboardPage = () => {
           </CardHeader>
           <CardContent>
             <p>You are enrolled in 3 courses.</p>
-            <Button size="sm" className="mt-4">View Courses</Button>
+            <Button size="sm" className="mt-4">
+              View Courses
+            </Button>
           </CardContent>
         </Card>
 
@@ -73,7 +84,9 @@ const UserDashboardPage = () => {
           </CardHeader>
           <CardContent>
             <p>No upcoming events.</p>
-            <Button size="sm" variant="outline" className="mt-4">View Calendar</Button>
+            <Button size="sm" variant="outline" className="mt-4">
+              View Calendar
+            </Button>
           </CardContent>
         </Card>
 

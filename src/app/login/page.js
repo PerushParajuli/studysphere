@@ -4,7 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import supabase from "@/lib/supabase";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input, Label } from "../components/ui/input";
 import { useToast } from "../components/ui/toast";
@@ -19,9 +25,12 @@ export default function LoginPage() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
-    
+
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       if (error) {
         toast.error(error.message);
       } else {
@@ -41,8 +50,18 @@ export default function LoginPage() {
         <Card className="border-0 shadow-medium">
           <CardHeader className="text-center">
             <div className="mx-auto w-12 h-12 bg-primary-600 rounded-xl flex items-center justify-center mb-4">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m0 4h14m-5 0a4 4 0 01-4 4H3a4 4 0 01-4-4v-4a4 4 0 014-4h1m4 4a4 4 0 104 4H3a4 4 0 01-4-4z" />
+              <svg
+                className="w-6 h-6 text-white"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M11 16l-4-4m0 0l4-4m0 4h14m-5 0a4 4 0 01-4 4H3a4 4 0 01-4-4v-4a4 4 0 014-4h1m4 4a4 4 0 104 4H3a4 4 0 01-4-4z"
+                />
               </svg>
             </div>
             <CardTitle className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -80,22 +99,33 @@ export default function LoginPage() {
                 />
               </div>
 
-              <Button type="submit" className="w-full" size="lg" disabled={loading}>
+              <Button
+                type="submit"
+                className="w-full"
+                size="lg"
+                disabled={loading}
+              >
                 {loading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
-            
+
             <div className="mt-6 text-center">
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Don&apos;t have an account?{" "}
-                <Link href="/register" className="font-medium text-primary-600 hover:text-primary-500 transition-colors">
+                <Link
+                  href="/register"
+                  className="font-medium text-primary-600 hover:text-primary-500 transition-colors"
+                >
                   Create one here
                 </Link>
               </p>
             </div>
-            
+
             <div className="mt-4 text-center">
-              <Link href="/" className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors">
+              <Link
+                href="/"
+                className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors"
+              >
                 ← Back to home
               </Link>
             </div>
